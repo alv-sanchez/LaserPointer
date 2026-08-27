@@ -11,34 +11,35 @@ import AppKit
 /// WINDOW LEVEL AND MOUSE CAPTURE — read this before changing either
 /// ============================================================================
 /// This window sits at the shielding level, i.e. above essentially everything
-/// including the menu bar and full-screen presentation windows, and while the
-/// pointer is armed it CAPTURES mouse input rather than passing it through.
-/// Both are deliberate, and the two decisions are linked.
+/// including the menu bar and full-screen presentation windows, and it captures
+/// mouse input while the draw modifier is held. Both are deliberate.
 ///
 /// Why the level: Keynote and PowerPoint put their slideshow windows at the
 /// shielding level themselves. An annotation overlay below that level is
 /// invisible for the entire activity this app exists for.
 ///
-/// Why capture: the drawing gesture is a press-and-drag. If the overlay let
-/// that drag through to the app underneath, every stroke would also be a
-/// text selection, a drag-and-drop, or a marquee in the presenting app —
-/// which is exactly the bug this capture fixes. Swallowing the drag is the
-/// only way to make press-to-draw safe; there is no API to observe a drag
-/// without either receiving it or asking for Accessibility.
+/// Why capture at all: the drawing gesture is a press-and-drag. If the overlay
+/// let that drag through, every stroke would also be a text selection, a
+/// drag-and-drop, or a marquee in the app underneath. Swallowing it is the only
+/// way to make drag-to-draw safe without asking for Accessibility.
 ///
-/// Mouse capture is scoped, not absolute:
+/// Mouse capture is narrow, not absolute:
+///
+///   * It is on ONLY while ⌥ is held (`setPassesThroughMouse`, driven from the
+///     sampling tick). With ⌥ up the window is fully click-through, so
+///     scrolling, clicking and right-clicking reach your apps normally even
+///     with the pointer armed.
 ///
 ///   * It exists only while armed. Disabled, there are no overlay windows at
 ///     all, so there is nothing to capture with.
 ///
 ///   * The menu-bar strip always passes through (`menuBarStripHeight`), so the
 ///     status item — and the clock, Wi-Fi, everything else up there — stays
-///     clickable while armed. That is the guaranteed off switch, and it is why
-///     capture at this level is not a lockout. The ⌃⌥⌘L hotkey is the second
-///     exit, and Force Quit the third.
+///     clickable even mid-gesture. That is the guaranteed off switch. The ⌃⌥⌘L
+///     hotkey is the second exit, and Force Quit the third.
 ///
 ///   * Our own dropdown is raised ABOVE this window when it opens (see
-///     WindowAccessor in MenuContentView) so its controls receive their own
+///     DropdownLevelRaiser in MenuContentView) so its controls receive their own
 ///     clicks instead of being covered by the overlay.
 ///
 /// The clickjacking concern that normally rules out high-level windows does not
@@ -73,10 +74,9 @@ final class LaserOverlayWindow: NSPanel {
         hasShadow = false
         level = NSWindow.Level(rawValue: Int(CGShieldingWindowLevel()))
 
-        // Armed means capturing: a press-drag must not reach the app underneath
-        // or it selects text there. The controller relaxes this per-frame over
-        // the menu-bar strip — see setPassesThroughMouse.
-        ignoresMouseEvents = false
+        // Click-through until the draw modifier says otherwise. The controller
+        // flips this per-frame — see setPassesThroughMouse and the class comment.
+        ignoresMouseEvents = true
 
         // `.nonactivatingPanel` + these two keep focus where it belongs: clicking
         // around never brings LaserPointer forward, and the panel does not

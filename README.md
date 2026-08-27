@@ -35,7 +35,7 @@ camera or mic.
 | | |
 |---|---|
 | Toggle on/off | Menu-bar icon, or **⌃⌥⌘L** from anywhere |
-| Draw | Hold the primary mouse button and move |
+| Draw | Hold **⌥** and drag with the primary mouse button |
 | Mode | **Trail** (ink that fades behind the cursor) or **Dot only** |
 | Color | Red · Green · Cyan · Amber |
 | Size / Fade | Sliders — fade is 0.25s to 5s |
@@ -44,26 +44,39 @@ Settings persist across launches. The armed state does not: it always starts off
 so the app never begins capturing your mouse because of something you did days
 ago.
 
-### While it is armed, your clicks do not reach your apps
+### Why drawing needs ⌥, and why that is the good outcome
 
-This is the part worth knowing. Drawing is a press-and-drag, and if that drag
-also reached the app underneath, every stroke would select text, drag a file, or
-draw a marquee — so while armed the overlay **swallows mouse input**. It is a
-draw mode, not an overlay you can click through.
+Drawing is a press-and-drag, and the overlay has to *swallow* that drag — if it
+passed through, every stroke would also select text or drag something in the app
+underneath. But capture cannot be switched on once a press is already underway:
+macOS gives the app that received the `mouseDown` an implicit grab on the rest of
+the drag, so flipping capture one sample later (~8ms) is far too late. The
+selection has already started and keeps going.
 
-What still works while armed:
+So capture has to be armed *before* the click, and a held modifier is the only
+thing that says "the next press is mine" in advance. The payoff:
 
-- **The menu bar.** The top strip of every display keeps passing clicks through,
-  so the menu-bar icon (and the clock, Wi-Fi, everything else) stays reachable.
-  That is the guaranteed off switch.
-- **⌃⌥⌘L**, from any app.
-- **The keyboard, entirely.** Nothing keyboard-driven is touched — which means a
-  presentation clicker still advances your slides, since those send arrow keys.
+| While armed | Goes to |
+|---|---|
+| Scroll | **your app** |
+| Click, right-click | **your app** |
+| Bare drag | **your app** (selects text as normal) |
+| **⌥ + drag** | **draws ink** — nothing reaches your app |
 
-Scroll wheel and right-click are captured too, for the same reason. If you want
-to interact with something, turn the pointer off; that is what the hotkey is for.
+Which means you can leave the pointer **armed for a whole presentation** and
+still scroll, click and interact normally. Releasing ⌥ mid-stroke ends the
+stroke and hands the mouse straight back.
 
----
+The menu-bar strip of every display always passes clicks through, so the
+menu-bar icon stays reachable even mid-gesture — that plus ⌃⌥⌘L are the off
+switches. The keyboard is never touched at all, so a presentation clicker still
+advances your slides.
+
+**The alternative, declined:** a `CGEventTap` could swallow left-drags
+selectively and let a bare drag draw while scroll passes through — at the cost of
+the **Input Monitoring** permission, and the no-permissions property above. If
+that trade ever looks worth it, the reasoning to overturn is at the top of
+`CursorTracker.swift`.
 
 ## Presenting over a screen share
 
@@ -107,7 +120,7 @@ firewall rule, a TCC grant), create a local self-signed certificate named
 | `LaserPointerApp.swift` | `MenuBarExtra` scene, app delegate, teardown at quit |
 | `MenuContentView.swift` | The dropdown; raises itself above the overlay |
 | `PointerController.swift` | Runtime: overlays per display, press state machine, mouse-capture policy |
-| `CursorTracker.swift` | 120 Hz permission-free cursor sampling |
+| `CursorTracker.swift` | 120 Hz permission-free cursor + modifier sampling; why the gesture is ⌥-gated |
 | `LaserOverlayWindow.swift` | The transparent shielding-level panel, one per display |
 | `InkCanvasView.swift` | Drawing: fade curve, four-pass glow, event swallowing |
 | `LaserStyle.swift` | Settings model + UserDefaults |

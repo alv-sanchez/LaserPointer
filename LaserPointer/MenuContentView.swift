@@ -21,12 +21,10 @@ struct MenuContentView: View {
                 VStack(alignment: .leading, spacing: 1) {
                     Text("Laser pointer")
                         .font(.system(size: 13, weight: .semibold))
-                    // Says what armed actually means, because the mouse
-                    // capture is surprising if you are not told: while on, the
-                    // app underneath receives no clicks at all.
-                    Text(controller.isEnabled
-                         ? "Clicks draw here, not in your app"
-                         : "Hold the mouse button to draw")
+                    // The gesture has to be stated, because a bare drag
+                    // deliberately does nothing — see CursorTracker for why
+                    // capture must be armed before the press.
+                    Text("Hold \(CursorTracker.drawModifierName) and drag to draw")
                         .font(.system(size: 11))
                         .foregroundStyle(.secondary)
                 }
@@ -73,7 +71,7 @@ struct MenuContentView: View {
             Divider()
 
             HStack {
-                Text("Toggle: \(ToggleHotKey.displayName)")
+                Text("Draw \(CursorTracker.drawModifierName)+drag · Toggle \(ToggleHotKey.displayName)")
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
                 Spacer()

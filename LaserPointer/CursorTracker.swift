@@ -40,7 +40,39 @@ final class CursorTracker {
         /// Left button ONLY, masked explicitly. Including the right button would
         /// mean every context menu in the presenting app paints a laser mark.
         let isPressed: Bool
+        /// True while the draw modifier is held.
+        ///
+        /// `NSEvent.modifierFlags` is a plain read of window-server state, like
+        /// `mouseLocation` — no permission, no event monitor. That is what makes
+        /// the whole gesture design possible.
+        let drawModifierHeld: Bool
     }
+
+    /// ========================================================================
+    /// WHY DRAWING IS GATED ON A MODIFIER
+    /// ========================================================================
+    /// The overlay has to SWALLOW the drag it draws from, or the same drag also
+    /// selects text in the app underneath. But swallowing cannot be switched on
+    /// once a press is already underway: macOS gives the app that received the
+    /// `mouseDown` an implicit grab on the rest of the drag, so flipping capture
+    /// one sample interval later is far too late — the selection has begun and
+    /// keeps going.
+    ///
+    /// Capture therefore has to be armed BEFORE the button goes down, and a held
+    /// modifier is the only thing that reliably says "the next press is for me"
+    /// in advance. A human presses ⌥ tens of milliseconds before clicking, so by
+    /// the time the `mouseDown` is routed, the overlay is already eligible.
+    ///
+    /// The payoff is that everything else keeps working while armed — scrolling,
+    /// clicking, right-clicking all pass straight through, because the overlay is
+    /// click-through whenever ⌥ is not held. The pointer can stay on for a whole
+    /// presentation instead of being toggled around every interaction.
+    ///
+    /// The alternative that allows a bare drag is a CGEventTap, which can swallow
+    /// left-drags selectively and pass the rest — at the cost of the Input
+    /// Monitoring permission. That trade was considered and declined; see README.
+    static let drawModifier: NSEvent.ModifierFlags = .option
+    static let drawModifierName = "⌥"
 
     /// 120 Hz. Matches ProMotion, and costs a rounding error of CPU. Halving it
     /// to 60 is visible as faint stair-stepping on a fast flick.
@@ -76,6 +108,15 @@ final class CursorTracker {
 
     private func tick() {
         let pressed = (NSEvent.pressedMouseButtons & 0x1) != 0
-        onSample?(Sample(location: NSEvent.mouseLocation, isPressed: pressed))
+
+        // `.deviceIndependentFlagsMask` strips the left/right-hand-key and
+        // numeric-pad bits, which are set inconsistently and would make a plain
+        // `contains` comparison miss. Other modifiers being held alongside ⌥ is
+        // fine — only ⌥'s presence is asked about.
+        let flags = NSEvent.modifierFlags.intersection(.deviceIndependentFlagsMask)
+
+        onSample?(Sample(location: NSEvent.mouseLocation,
+                         isPressed: pressed,
+                         drawModifierHeld: flags.contains(Self.drawModifier)))
     }
 }

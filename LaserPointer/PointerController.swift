@@ -34,7 +34,7 @@ final class PointerController: ObservableObject {
 
     // MARK: - Press state
 
-    private var wasPressed = false
+    private var wasDrawing = false
 
     /// The overlay currently receiving the stroke. Tracked so a drag that
     /// crosses from one display to another can be split into two strokes — a
@@ -69,7 +69,7 @@ final class PointerController: ObservableObject {
 
     private func deactivate() {
         tracker.stop()
-        wasPressed = false
+        wasDrawing = false
         activeOverlay = nil
         teardownOverlays()
     }
@@ -112,8 +112,16 @@ final class PointerController: ObservableObject {
         let now = CACurrentMediaTime()
         let target = overlay(containing: sample.location)
 
-        if sample.isPressed {
-            let startingFresh = !wasPressed || target !== activeOverlay
+        // A press only draws while the draw modifier is held. Without this gate
+        // a bare drag would paint ink AND select text underneath, because the
+        // overlay is click-through unless ⌥ is down — the worst of both.
+        //
+        // Releasing ⌥ mid-drag therefore ends the stroke, which is the intended
+        // escape: let go of ⌥ and the drag becomes an ordinary drag again.
+        let isDrawing = sample.isPressed && sample.drawModifierHeld
+
+        if isDrawing {
+            let startingFresh = !wasDrawing || target !== activeOverlay
 
             if startingFresh {
                 // Close out whatever stroke was open — either the button was up,
@@ -126,14 +134,14 @@ final class PointerController: ObservableObject {
             } else if let target {
                 target.canvas.extendStroke(to: local(sample.location, in: target), now: now)
             }
-        } else if wasPressed {
+        } else if wasDrawing {
             activeOverlay?.canvas.endStroke()
             activeOverlay = nil
         }
 
-        wasPressed = sample.isPressed
+        wasDrawing = isDrawing
 
-        updateMouseCapture(cursor: sample.location)
+        updateMouseCapture(cursor: sample.location, modifierHeld: sample.drawModifierHeld)
 
         // Every canvas advances every frame, not just the active one: ink on the
         // display the cursor just left still has to finish fading out.
@@ -143,23 +151,26 @@ final class PointerController: ObservableObject {
     }
 
     /// Decides, every frame, which overlays swallow mouse input and which let it
-    /// through.
+    /// through. This is the mechanism that makes scrolling and clicking work
+    /// while the pointer is armed.
     ///
-    /// Capture is what stops a drawing drag from selecting text in the app
-    /// underneath. The one exception is the menu-bar strip of whichever display
-    /// the cursor is on: clicks there must reach the status item, because that
-    /// menu is the off switch. Every other overlay stays in capture mode — the
-    /// cursor is not on them, so there is nothing to pass through anyway.
+    /// Capture is on only while the draw modifier is held. That timing is the
+    /// whole trick and it is explained in CursorTracker: capture has to be
+    /// eligible BEFORE the `mouseDown`, because the app that receives a press
+    /// keeps the rest of the drag no matter what we do afterwards. Deciding it
+    /// here — in the sampling tick, off the modifier — means the overlay is
+    /// already capturing by the time the button goes down, and is click-through
+    /// again the moment ⌥ is released.
     ///
-    /// Done from the sampling tick rather than from a mouse-moved handler because
-    /// the decision has to be made BEFORE the click arrives; by the time we could
-    /// handle an event over the menu bar, we would already have stolen it.
-    private func updateMouseCapture(cursor: CGPoint) {
+    /// One exception survives: the menu-bar strip of whichever display holds the
+    /// cursor always passes through, so ⌥-clicking the status item (or the clock,
+    /// or Wi-Fi) still works and the off switch is never covered.
+    private func updateMouseCapture(cursor: CGPoint, modifierHeld: Bool) {
         for overlay in overlays {
             let frame = overlay.frame
             let inStrip = NSMouseInRect(cursor, frame, false)
                 && cursor.y >= frame.maxY - overlay.menuBarStripHeight
-            overlay.setPassesThroughMouse(inStrip)
+            overlay.setPassesThroughMouse(!modifierHeld || inStrip)
         }
     }
 
